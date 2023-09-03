@@ -1,0 +1,27 @@
+name: Install Apache2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  install_apache:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan 13.209.70.134 >> ~/.ssh/known_hosts
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Install Apache2
+      run: |
+        ssh -o StrictHostKeyChecking=no ubuntu@13.209.70.134 "sudo apt-get update && sudo apt-get install -y apache2"
