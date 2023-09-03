@@ -1,0 +1,27 @@
+---
+- name: Setup Node.js Application with MongoDB Atlas
+  hosts: all
+  become: yes
+  tasks:
+    - name: install nodejs on ubuntu
+      ansible.builtin.apt:
+        name: 
+          - nodejs
+          - npm
+        update_cache: yes
+        state: present
+    - name: git clone the application
+      ansible.builtin.git:
+        clone: true
+        repo: https://github.com/Pearlthoughts18/Aug-25.git
+        dest: /home/jenkins/Aug-25
+    - name: Installing Node.js Application
+      ansible.builtin.shell:
+        cmd: npm install
+        chdir: /home/jenkins/Aug-25/app/
+    - name: Starting Node.js Application
+      ansible.builtin.shell:
+        cmd: nohup node app.js &
+        chdir: /home/jenkins/Aug-25/app/
+      async: 45
+      poll: 0
