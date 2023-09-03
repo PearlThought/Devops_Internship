@@ -1,0 +1,188 @@
+---
+- name: Set up Snipeit Application
+  hosts: all
+  become: yes
+  vars:
+      snipeit_db_name: snipeit_db
+      snipeit_db_user: snipeit_user
+      snipeit_db_password: password
+      snipeit_domain: 15.164.210.110
+      php_fpm: php8.1-fpm
+      root_path: /var/www/html
+      app_path: /var/www/snipeit
+  tasks:
+    - name: update and upgrade packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: yes
+    - name: Install NGINX, MySQL
+      ansible.builtin.apt:
+        name: "{{ packages }}"
+        state: present 
+      vars: 
+        packages:
+            - nginx
+            - mysql-server
+            - python3-pip
+    - name: Add APT repository universe
+      ansible.builtin.apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
+        state: present
+    - name: Install PHP and PHP FPM 
+      ansible.builtin.apt:
+        name: "{{ packages }}"
+        state: present 
+      vars: 
+        packages:
+            - php-fpm
+            - php-mysql
+    - name: Create a new site by copying snipeit.teju.com to etc/nginx/sites-available/
+      ansible.builtin.template:
+        src: snipeit.teju.com.j2
+        dest: /etc/nginx/sites-available/snipeit.teju.com
+    - name: creating stats for symbolic link
+      ansible.builtin.stat:
+        path: /etc/nginx/sites-enabled/snipeit.teju.com
+      register: symbolic_link 
+    - name: creating symbolic link /etc/nginx/sites-available/snipeit.teju.com and /etc/nginx/sites-enabled/
+      ansible.builtin.command: sudo ln -s /etc/nginx/sites-available/snipeit.teju.com /etc/nginx/sites-enabled/
+      when: not symbolic_link.stat.exists
+    - name: unlink /etc/nginx/sites-enabled/default
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: 
+        - Restart nginx service 
+        - testing php using info.php
+    - name: secure mariadb
+      become: yes
+      ansible.builtin.expect:
+        command: mysql_secure_installation
+        responses:
+          'Enter current password for root': ''
+          'Set root password': 'n'
+          'Remove anonymous users': 'y'
+          'Disallow root login remotely': 'y'
+          'Remove test database': 'y'
+          'Reload privilege tables now': 'y'
+        timeout: 1
+      register: secure_mariadb
+      failed_when: "'... Failed!' in secure_mariadb.stdout_lines" 
+    - name: Install PyMySQL 
+      ansible.builtin.pip:
+        name: PyMySQL
+    - name: Create Snipe-IT database
+      community.mysql.mysql_db:
+        name: "{{ snipeit_db_name }}"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+    - name: Create Snipe-IT database user
+      community.mysql.mysql_user:
+        name: "{{ snipeit_db_user }}"
+        password: "{{ snipeit_db_password }}"
+        priv: "{{ snipeit_db_name }}.*:ALL"
+        host: localhost
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+    - name: restart mysql
+      ansible.builtin.systemd:
+        name: mysql 
+        state: restarted
+    - name: creating a stat for snipeit
+      ansible.builtin.stat:
+        path: "{{ app_path }}"
+      register: snipeit
+    - name: cloning snipe-it from git
+      ansible.builtin.git:
+        repo: https://github.com/snipe/snipe-it
+        dest: "{{ app_path }}"
+        clone: true
+      when: not snipeit.stat.exists
+    - name: copy .env.example to .env
+      ansible.builtin.copy:
+        src: /var/www/snipeit/.env.example
+        dest: /var/www/snipeit/.env
+        remote_src: true
+    - name: update .env file
+      ansible.builtin.lineinfile:
+        path: "{{ app_path }}/.env"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      with_items:
+        - { regexp: '^DB_DATABASE=', line: "DB_DATABASE={{ snipeit_db_name }}" }
+        - { regexp: '^DB_USERNAME=', line: "DB_USERNAME= {{ snipeit_db_user }}"}
+        - { regexp: '^DB_PASSWORD=', line: "DB_PASSWORD= {{ snipeit_db_password }}"}
+        - { regexp: '^APP_URL=', line: "APP_URL=http://{{ snipeit_domain }}" }
+    - name: set owner permissions
+      ansible.builtin.file:
+        path: "{{ app_path }}/"
+        state: directory
+        recurse: yes
+        owner: www-data
+        group: www-data     
+    - name: Set directory permissions
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        recurse: yes
+        owner: www-data
+        group: www-data
+        mode: 0755
+      loop:
+        - "{{ app_path }}/storage"
+        - "{{ app_path }}/public/uploads"
+    - name: creating stats for composer.phar
+      ansible.builtin.stat:
+        path: /usr/local/bin/composer
+      register: composer
+    - name: Download Composer
+      ansible.builtin.shell: sudo curl -sS https://getcomposer.org/installer | php && sudo mv composer.phar /usr/local/bin/composer 
+      when: not composer.stat.exists 
+    - name: installing necessary packages 
+      ansible.builtin.apt:
+        name: "{{ packages }}"
+        state: present 
+      vars: 
+        packages:          
+            - git 
+            - unzip 
+            - php 
+            - php-curl 
+            - php-mysql
+            - php-gd 
+            - php-ldap 
+            - php-zip 
+            - php-mbstring 
+            - php-xml 
+            - php-bcmath 
+            - php-tokenizer  
+    - name: composer install
+      community.general.composer:
+        command: install
+        working_dir: "{{ app_path }}"
+        prefer_source: true
+        no_dev: true
+      vars:
+        ansible_become: yes
+        ansible_become_user: root
+      environment:
+        COMPOSER_ALLOW_SUPERUSER: 1
+    - name: php key-generation
+      ansible.builtin.command: sudo php artisan key:generate --force
+      args:
+        chdir: "{{ app_path }}"      
+    - name: Update Nginx site root
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/sites-available/snipeit.teju.com
+        regexp: '^(\s*)root(\s+)/var/www/html;'
+        line: "root {{ app_path }}/public;"
+      notify:
+        - Restart nginx service
+  handlers:
+    - name: Restart nginx service 
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+    - name: testing php using info.php
+      ansible.builtin.command: sudo bash -c "echo -e '<?php\nphpinfo();\n?>' > /var/www/html/info.php"
+ 
