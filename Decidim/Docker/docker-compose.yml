@@ -1,0 +1,32 @@
+version: '3'
+services:
+  decidim-db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: decidim_production
+      POSTGRES_USER: decidim
+      POSTGRES_PASSWORD: thepassword # Change this to your desired password
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  decidim-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - decidim-db
+    environment:
+      - RAILS_ENV=development
+      - DATABASE_HOST=decidim-db
+      - DATABASE_USERNAME=decidim
+      - DATABASE_PASSWORD=thepassword # Change to match the PostgreSQL password above
+      - DATABASE_NAME=decidim_production
+    volumes:
+      - ./config:/decidim_application/config # Mount your Decidim configuration
+      - ./data:/decidim_application/data # Mount any data directories you need
+      - ./config/database.yml:/decidim_application/config/database.yml # Mount the database.yml file
+
+volumes:
+  pg_data: # Define a named volume for PostgreSQL data

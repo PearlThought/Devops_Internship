@@ -1,0 +1,107 @@
+---
+- name: Installling Decidim
+  hosts: all
+  become: yes
+  vars:
+    database_host: localhost
+    database_username: decidim_app
+    database_password: thepassword
+  tasks:
+    - name: Include the foo_app_instance role
+      include_role:
+        name: geerlingguy.ruby
+    - name: Installing PostgreSQL
+      ansible.builtin.apt:
+        name:
+          - postgresql
+          - libpq-dev
+    # - name: creatin user
+    #   ansible.builtin.shell: 
+    #     cmd: sudo -u postgres psql -c "CREATE USER decidim_app WITH SUPERUSER CREATEDB NOCREATEROLE PASSWORD 'thepassword'"
+    - name: Check if PostgreSQL user exists
+      become_user: postgres
+      become: yes
+      ansible.builtin.shell: |
+        psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='decidim_app'"
+      register: postgres_user_check
+      ignore_errors: yes
+
+    - name: Create PostgreSQL user if not exists
+      become_user: postgres
+      become: yes
+      ansible.builtin.shell: |
+        psql -c "CREATE USER decidim_app WITH SUPERUSER CREATEDB NOCREATEROLE PASSWORD 'thepassword'"
+      when: postgres_user_check.rc != 0
+      register: postgres_user_creation
+
+    - name: Display PostgreSQL user creation result
+      ansible.builtin.debug:
+        msg: "{{ postgres_user_creation }}"
+    - name: Installing packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - gnupg
+        update_cache: yes
+    - name: creating /etc/apt/keyrings 
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+    - name: Add Node.js repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main"
+        filename: nodesource.list
+    - name: installing nodejs
+      ansible.builtin.apt:
+        name: nodejs
+        update_cache: yes
+    - name: Add Yarn repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main"
+        filename: yarn.list
+    - name: installing yarn
+      ansible.builtin.apt:
+        name: yarn
+        update_cache: yes 
+    - name: installing imagemagick
+      ansible.builtin.apt:
+        name:
+          - libicu-dev
+          - imagemagick
+    - name: Install libz development library
+      ansible.builtin.apt:
+        name: zlib1g-dev
+        state: present
+      become_user: root
+    - name: Retry gem install decidim
+      ansible.builtin.command: gem install decidim
+      become_user: "{{ ansible_user }}"
+      ignore_errors: yes
+      register: gem_install_result
+    - name: Debug gem install result
+      ansible.builtin.debug:
+        var: gem_install_result
+    - name: decidim decidim_application
+      ansible.builtin.command: decidim decidim_application
+    - name: installing rbenv-vars
+      ansible.builtin.git: 
+        repo: git clone https://github.com/rbenv/rbenv-vars.git 
+        dest: .rbenv/plugins/rbenv-vars
+    - name: copy .rbenv-vars.j2
+      ansible.builtin.template: 
+        src: .rbenv-vars.j2
+        dest: /decidim_application/.rbenv-vars
+    - name: db create
+      ansible.builtin.shell:
+        cmd: bin/rails db:create db:migrate
+        chdir: /decidim_application/
+    - name: db seed
+      ansible.builtin.shell:
+        cmd: bin/rails db:seed
+        chdir: /decidim_application/  
+    - name: stating the decidim_application
+      ansible.builtin.shell:   
+        cmd: nohup bin/rails s -b 0.0.0.0 &
+        chdir: /decidim_application/
+      async: 30
+      poll: 0  
