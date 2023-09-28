@@ -52,8 +52,8 @@ RUN gem install bundle
 RUN bundle install 
 # Configure the database
 RUN git clone https://github.com/rbenv/rbenv-vars.git $RBENV_ROOT/plugins/rbenv-vars 
+RUN chmod +x /code/vendor/entrypoint.sh
 
-COPY entrypoint.sh ./
 # Expose port 3000
 EXPOSE 3000
 ENTRYPOINT []
