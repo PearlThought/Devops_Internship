@@ -48,14 +48,14 @@ RUN apt-get update && apt-get install -y \
 RUN gem install --no-document decidim && \
     decidim decidim_application
 WORKDIR /decidim_application
-
-
+RUN gem install bundle
+RUN bundle install 
 # Configure the database
 RUN git clone https://github.com/rbenv/rbenv-vars.git $RBENV_ROOT/plugins/rbenv-vars 
 
-
+COPY entrypoint.sh ./
 # Expose port 3000
 EXPOSE 3000
-
-CMD ["bin/rails", "s", "-b", "0.0.0.0"]
+ENTRYPOINT []
+CMD ["bundle", "exec", "rails", "s", "-b", "0.0.0.0"]
 
