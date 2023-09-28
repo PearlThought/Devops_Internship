@@ -30,4 +30,4 @@ services:
       - ./config/database.yml:/decidim_application/config/database.yml # Mount the database.yml file
 
 volumes:
-  pg_data: {} # Define a named volume for PostgreSQL data
+  pg_data:  # Define a named volume for PostgreSQL data
